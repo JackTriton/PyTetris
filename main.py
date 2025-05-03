@@ -175,7 +175,7 @@ class Tetris(arcade.Window):
         self.level = 0
         self.score = 0
         self.combo = 0
-        self.frame=arcade.Sprite("./frame.png")
+        self.frame=arcade.Sprite("./image/frame.png")
         self.frame_list=arcade.SpriteList()
         self.frame_list.append(self.frame)
         self.frame.center_x, self.frame.center_y=300+5*CELL_SIZE, 100+10*CELL_SIZE
