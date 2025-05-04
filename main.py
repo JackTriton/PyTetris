@@ -32,7 +32,7 @@ MASTER_TIMINGS = [
 ]
 
 CR_TIMINGS = [
-    [(0,    70,  99), {"COOL":52,"REGRET":90},False,False,False],
+    [(0,    70,  99), {"COOL":102,"REGRET":160},False,False,False],
     [(100, 170, 199), {"COOL":52,"REGRET":75},False,False,False],
     [(200, 270, 299), {"COOL":49,"REGRET":75},False,False,False],
     [(300, 370, 399), {"COOL":45,"REGRET":68},False,False,False],
@@ -154,7 +154,6 @@ SHAPES = {
         ]
 }
 SHAPE_PLACE=[x for x in SHAPES.keys()]
-print(SHAPE_PLACE)
 def get_master_timing(level):
     for (low, high), t in MASTER_TIMINGS:
         if low <= level <= high:
@@ -330,13 +329,13 @@ class Tetris(arcade.Window):
             if elapsed <= self.cr_section[self.section][1]["COOL"]:
                 self.cool+=1
                 self.cr_section[self.section][3]=True
-        elif self.level>=self.cr_section[self.section][0][2]:
-            self.section+=1
-            self.section_start_time=time.time()
         elapsed = time.time() - self.section_start_time
         if elapsed >= self.cr_section[self.section][1]["REGRET"]:
             self.regret+=1
             self.cr_section[self.section][4]=True
+        if self.level>self.cr_section[self.section][0][2]:
+            self.section+=1
+            self.section_start_time=time.time()
         cr_count = max(self.cool - self.regret,0)
         self.speed_level = self.level + cr_count * 100
         self.timing = get_master_timing(self.speed_level)
@@ -457,7 +456,7 @@ class Tetris(arcade.Window):
         if self.cr_section[self.section][4]:
             d="REGRET"
             c=arcade.color.ORANGE if self.cr_section[self.section][3] else arcade.color.RED
-        else:
+        if not (self.cr_section[self.section][3] or self.cr_section[self.section][4]):
             d=""
             c=arcade.color.WHITE
         arcade.draw_text(f"{d}", 10, SCREEN_HEIGHT-60, c, 14)
