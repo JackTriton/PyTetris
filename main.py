@@ -500,7 +500,6 @@ class Tetris(arcade.Window):
 
     def get_ingrade(self,cleared):
         self.spinp=self.piece.is_t_spin(self.grid)
-        print(self.spinp)
         if self.spinp == "TSpin":sm=1.5
         elif self.spinp == "TSpinMini":sm=1.2
         else:sm=1.0
