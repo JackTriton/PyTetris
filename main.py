@@ -32,7 +32,7 @@ MASTER_TIMINGS = [
 ]
 
 CR_TIMINGS = [
-    [(0,    70,  99), {"COOL":102,"REGRET":160},False,False,False],
+    [(0,    70,  99), {"COOL":52,"REGRET":90},False,False,False],
     [(100, 170, 199), {"COOL":52,"REGRET":75},False,False,False],
     [(200, 270, 299), {"COOL":49,"REGRET":75},False,False,False],
     [(300, 370, 399), {"COOL":45,"REGRET":68},False,False,False],
@@ -192,6 +192,7 @@ class Piece:
         self.rotation = 0
         self.blocks = SHAPES[shape]
         self.last_kick=0
+        self.last_action="spawn"
         if spawn==-1:
             self.x = 1+spawn+ELO(shape)
         elif spawn==1:
@@ -202,6 +203,21 @@ class Piece:
 
     def current_coords(self):
         return [(self.x+dx, self.y+dy) for dx, dy in self.blocks[self.rotation]]
+
+    def is_t_spin(self, grid):
+        if self.shape != 'T' or self.last_action!="rotate":return False
+        corners = [(-1, 1), (1, 1), (1, -1), (-1, -1)];occupied = 0;mini_parse = 0
+        pnum=[self.rotation,(self.rotation+1)%4]
+        for i,(dx, dy) in enumerate(corners):
+            x, y = self.x + dx, self.y + dy
+            if y<0 or grid[y][x] is not None:
+                occupied += 1
+                if i in pnum: mini_parse+=1
+        if occupied >= 3:
+            if mini_parse!=2 and self.last_kick!=4:
+                return 'TSpinMini'
+            return 'TSpin'
+        return None
 
     def rotate(self, dir, grid):
         old, new = self.rotation, (self.rotation+dir)%4
@@ -221,6 +237,7 @@ class Tetris(arcade.Window):
     def __init__(self):
         super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_TITLE)
         arcade.set_background_color((106,90,205))
+        self.background=arcade.load_texture("./bg/title.png")
         self.block_sprite=[[[[] for _ in range(8)] for _ in range(GRID_WIDTH)] for _ in range(GRID_HEIGHT)]
         self.hold_sprite=[[] for _ in range(8)]
         self.next_sprite=[[] for _ in range(8)]
@@ -267,8 +284,7 @@ class Tetris(arcade.Window):
         self.reset_game()
 
     def reset_game(self):
-        self.start_time = time.time()
-        self.section_start_time = self.start_time
+        self.section_start_time = 0.0
         self.section=0
         self.g_section=GRAVITY[:]
         self.gs=0
@@ -308,34 +324,34 @@ class Tetris(arcade.Window):
         self.move_left = self.move_right = self.move_down = False
         self.das_timer = self.arr_timer = 0.0
         self.das_down_timer = self.arr_down_timer = 0.0
-        self.spawn_piece()
+        self.elp=0.0
         self.paused = False
         self.game_over = False
         self.move_floor = 0
         self.p_move = 0
+        self.perfect=False
+        self.spinp=None
+        self.spawn_piece()
 
     def spawn_piece(self):
-        if self.move_left:
-            spawn=-1
-        elif self.move_right:
-            spawn=0
-        else:
-            spawn=1
+        if self.move_left:spawn=-1
+        elif self.move_right:spawn=0
+        else:spawn=1
         # increase level on each spawn
         self.level += 1 if (self.level+1)%100!=0 else 0
         if self.level>=self.cr_section[self.section][0][1] and not self.cr_section[self.section][2]:
             self.cr_section[self.section][2]=True
-            elapsed = time.time() - self.section_start_time
+            elapsed = self.elp - self.section_start_time
             if elapsed <= self.cr_section[self.section][1]["COOL"]:
                 self.cool+=1
                 self.cr_section[self.section][3]=True
-        elapsed = time.time() - self.section_start_time
+        elapsed = self.elp - self.section_start_time
         if elapsed >= self.cr_section[self.section][1]["REGRET"]:
             self.regret+=1
             self.cr_section[self.section][4]=True
         if self.level>self.cr_section[self.section][0][2]:
             self.section+=1
-            self.section_start_time=time.time()
+            self.section_start_time=self.elp
         cr_count = max(self.cool - self.regret,0)
         self.speed_level = self.level + cr_count * 100
         self.timing = get_master_timing(self.speed_level)
@@ -357,6 +373,10 @@ class Tetris(arcade.Window):
         self.hold_list.clear()
         self.next_list.clear()
         self.lane_list.clear()
+        arcade.draw_texture_rect(
+            self.background,
+            arcade.LBWH(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT),
+        )
         # Settled blocks
         arcade.draw_rect_filled(
             arcade.rect.XYWH(300+5*CELL_SIZE, 100+10*CELL_SIZE, CELL_SIZE*GRID_WIDTH, CELL_SIZE*GRID_HEIGHT),(0,0,0,100))
@@ -366,10 +386,11 @@ class Tetris(arcade.Window):
                     i=SHAPE_PLACE.index(color);b=self.block_sprite[y][x][i]
                     if not self.block_list.__contains__(b):
                         self.block_list.append(b)
-        for x, y in self.piece.current_coords():
-            i=SHAPE_PLACE.index(self.piece.shape);b=self.block_sprite[y][x][i]
-            if not self.block_list.__contains__(b):
-                self.block_list.append(b)
+        if not self.pending_spawn:
+            for x, y in self.piece.current_coords():
+                i=SHAPE_PLACE.index(self.piece.shape);b=self.block_sprite[y][x][i]
+                if not self.block_list.__contains__(b):
+                    self.block_list.append(b)
         arcade.draw_rect_filled(
                 arcade.rect.XYWH(300+(GRID_WIDTH)*CELL_SIZE, 120+(GRID_HEIGHT+2)*CELL_SIZE, CELL_SIZE*5, CELL_SIZE*4),
                 (0,0,0,100)
@@ -379,7 +400,7 @@ class Tetris(arcade.Window):
                 (0,0,0,100)
             )
         arcade.draw_rect_filled(
-                arcade.rect.XYWH(205, 650, 160, 140),
+                arcade.rect.XYWH(205, 100+10*CELL_SIZE, 160, CELL_SIZE*GRID_HEIGHT),
                 (0,0,0,100)
             )
         self.frame_list.draw()
@@ -446,10 +467,18 @@ class Tetris(arcade.Window):
         
         self.next_list.draw()
         self.lane_list.draw()
+        e = self.elp
+        m=min(int(e)//60,99);s=int(e)%60;ms=int(100*(e-int(e)))
+        elapsed=f"{m:02}'{s:02}\"{ms:03}"
         # score display
-        arcade.draw_text(f"Score: {self.score}", 10, SCREEN_HEIGHT-20, arcade.color.WHITE, 14)
-        arcade.draw_text(f"Level: {self.level}", 150, SCREEN_HEIGHT-20, arcade.color.WHITE, 14)
-        arcade.draw_text(f"Grade:{self.grade}", 10, SCREEN_HEIGHT-40, arcade.color.GOLD, 16)
+        arcade.draw_text("Score:", 130, SCREEN_HEIGHT-330-40, arcade.color.WHITE, 14)
+        arcade.draw_text(f"{self.score}", 130, SCREEN_HEIGHT-330-60, arcade.color.WHITE, 14)
+        arcade.draw_text("Level:", 130, SCREEN_HEIGHT-330-100, arcade.color.WHITE, 14)
+        arcade.draw_text(f"{self.level}", 130, SCREEN_HEIGHT-330-120, arcade.color.WHITE, 14)
+        arcade.draw_text("TIME:", 130, SCREEN_HEIGHT-330-160, arcade.color.WHITE, 16)
+        arcade.draw_text(f"{elapsed}", 130, SCREEN_HEIGHT-330-180, arcade.color.WHITE, 16)
+        arcade.draw_text("Grade:", 130, SCREEN_HEIGHT-330-220, arcade.color.GOLD, 16)
+        arcade.draw_text(f"{self.grade}", 130, SCREEN_HEIGHT-330-240, arcade.color.GOLD, 16)
         if self.cr_section[self.section][3]:
             d="COOL"
             c=arcade.color.AQUA
@@ -459,7 +488,7 @@ class Tetris(arcade.Window):
         if not (self.cr_section[self.section][3] or self.cr_section[self.section][4]):
             d=""
             c=arcade.color.WHITE
-        arcade.draw_text(f"{d}", 10, SCREEN_HEIGHT-60, c, 14)
+        arcade.draw_text(f"{d}", 130, SCREEN_HEIGHT-330-280, c, 14)
 
         if self.paused:
             arcade.draw_text("PAUSED", SCREEN_WIDTH/2-50, SCREEN_HEIGHT/2, arcade.color.WHITE, 24)
@@ -470,6 +499,12 @@ class Tetris(arcade.Window):
         return self.grid[:]!=[r for r in self.grid if any(c is None for c in r)]
 
     def get_ingrade(self,cleared):
+        self.spinp=self.piece.is_t_spin(self.grid)
+        print(self.spinp)
+        if self.spinp == "TSpin":sm=1.5
+        elif self.spinp == "TSpinMini":sm=1.2
+        else:sm=1.0
+        if self.perfect: sm*=2.0
         if cleared==1:
             if self.in_grade<5:pt=10
             elif self.in_grade<10:pt=5
@@ -494,24 +529,29 @@ class Tetris(arcade.Window):
             else: pt=30
             cm=1.5+0.2*min(max(self.combo-2,0),5)+0.1*max(self.combo-5,0) if self.combo<10 else 3
         if self.combo==1: cm=1
-        return math.ceil(pt*cm)*(1+self.level//250)
+        return math.ceil(pt*cm*sm)*(1+self.level//250)
         
     def clear_lines(self):
         new_grid = [r for r in self.grid if any(c is None for c in r)]
         cleared = GRID_HEIGHT - len(new_grid)
         for _ in range(cleared):
             new_grid.append([None] * GRID_WIDTH)
-        self.grid = new_grid
+        if all(all(cell is None for cell in row) for row in new_grid): self.perfect=True
         if cleared > 0:
             self.combo += 1
             self.in_grade += self.get_ingrade(cleared)
         else:
             self.combo = 0
+        self.grid = new_grid
         self.level += max(1,2*(cleared-1)) if cleared > 0 else 0
+        if self.spinp == "TSpin" and cleared > 0: self.level+=2
+        self.perfect=False
+        self.spinp=None
         return cleared
 
     def on_update(self, dt):
         if self.paused or self.game_over: return
+        self.elp+=dt
         if self.pending_spawn:
             delay = self.line_are_timer or self.are_timer
             delay -= dt
@@ -586,6 +626,7 @@ class Tetris(arcade.Window):
         if all(0<=nx<GRID_WIDTH and ny>=0 and self.grid[ny][nx] is None
                for nx,ny in [(x,y-1) for x,y in self.piece.current_coords()]):
             self.piece.y-=1
+            self.piece.last_action="move"
             self.lock_timer=0
             self.move_floor=0
 
@@ -605,18 +646,22 @@ class Tetris(arcade.Window):
 
     def on_key_press(self,key,_):
         if key == arcade.key.R or (key==arcade.key.ESCAPE and self.game_over):self.reset_game();return
-        elif key==arcade.key.ESCAPE: self.paused=not self.paused;return
+        elif key==arcade.key.ESCAPE:self.paused=not self.paused;return
         if self.paused or self.game_over: return
         if key==arcade.key.LEFT:
             self.move_left=True;self.move_right=False;self.das_timer=0
             self.move_floor+=1 if self.lock_timer!=0 else 0
-            self.piece.x-=1
-            if not self.piece._valid(self.grid): self.piece.x+=1
+            if not self.pending_spawn:
+                self.piece.x-=1
+                if not self.piece._valid(self.grid): self.piece.x+=1
+                self.piece.last_action="move"
         elif key==arcade.key.RIGHT:
             self.move_right=True;self.move_left=False;self.das_timer=0;self.arr_timer=0
-            self.piece.x+=1
             self.move_floor+=1 if self.lock_timer!=0 else 0
-            if not self.piece._valid(self.grid): self.piece.x-=1
+            if not self.pending_spawn:
+                self.piece.x+=1
+                if not self.piece._valid(self.grid): self.piece.x-=1
+                self.piece.last_action="move"
         elif key==arcade.key.DOWN:
             self.move_down=True;self.das_down_timer=0
         elif key==arcade.key.UP and not self.pending_spawn:
@@ -630,12 +675,16 @@ class Tetris(arcade.Window):
                       for nx,ny in [(x,y-1) for x,y in self.piece.current_coords()]):
                 self.piece.y-=1
         elif key in (arcade.key.Z,arcade.key.X,arcade.key.C):
-            self.piece.rotate(-1 if key==arcade.key.Z else 1,self.grid)
+            rot=[-1,1,2][[arcade.key.Z,arcade.key.X,arcade.key.C].index(key)]
+            if not self.pending_spawn: self.piece.rotate(rot,self.grid)
             self.move_floor+=1 if self.lock_timer!=0 else 0
-            if key==arcade.key.C: self.piece.rotate(1,self.grid)
+            self.piece.last_action="rotate"
         elif key==arcade.key.A and not (self.hold_used or self.up_used):
+            if self.move_left:spawn=-1
+            elif self.move_right:spawn=0
+            else:spawn=1
             if self.hold is None: self.hold,self.piece=self.piece.shape,None;self.spawn_piece()
-            else: self.hold,self.piece.shape=self.piece.shape,self.hold;self.piece = Piece(self.piece.shape)
+            else: self.hold,self.piece.shape=self.piece.shape,self.hold;self.piece = Piece(self.piece.shape,spawn)
             self.hold_used=True
 
     def on_key_release(self,key,_):
