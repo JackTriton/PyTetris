@@ -205,7 +205,7 @@ class Piece:
         return [(self.x+dx, self.y+dy) for dx, dy in self.blocks[self.rotation]]
 
     def is_t_spin(self, grid):
-        if self.shape != 'T' or self.last_action!="rotate":return False
+        if self.shape != 'T' or self.last_action!="rotate":return None
         corners = [(-1, 1), (1, 1), (1, -1), (-1, -1)];occupied = 0;mini_parse = 0
         pnum=[self.rotation,(self.rotation+1)%4]
         for i,(dx, dy) in enumerate(corners):
@@ -215,8 +215,8 @@ class Piece:
                 if i in pnum: mini_parse+=1
         if occupied >= 3:
             if mini_parse!=2 and self.last_kick!=4:
-                return 'TSpinMini'
-            return 'TSpin'
+                return 'T-Spin Mini'
+            return 'T-Spin'
         return None
 
     def rotate(self, dir, grid):
@@ -307,6 +307,9 @@ class Tetris(arcade.Window):
         self.regret = 0
         self.score = 0
         self.combo = 0
+        self.sf_t=0;self.hd_t=0
+        self.b2b=False
+        self.last_clear=None
         self.frame=arcade.Sprite("./image/frame.png")
         self.frame_list=arcade.SpriteList()
         self.block_list=arcade.SpriteList()
@@ -332,7 +335,7 @@ class Tetris(arcade.Window):
         self.perfect=False
         self.spinp=None
         self.spawn_piece()
-
+        
     def spawn_piece(self):
         if self.move_left:spawn=-1
         elif self.move_right:spawn=0
@@ -419,6 +422,12 @@ class Tetris(arcade.Window):
                 )
         self.block_list.draw()
         for y, row in enumerate(self.grid):
+            for x, color in enumerate(row):
+                if color:
+                    arcade.draw_rect_filled(
+                        arcade.rect.XYWH(300+(x+0.5)*CELL_SIZE, 100+(y+0.5)*CELL_SIZE, CELL_SIZE-1, CELL_SIZE-1),
+                        (0,0,0,50)
+                    )
             if self.pending_spawn and all(c is not None for c in row):
                 delay = self.line_are_timer or self.are_timer
                 arcade.draw_rect_filled(
@@ -471,14 +480,11 @@ class Tetris(arcade.Window):
         m=min(int(e)//60,99);s=int(e)%60;ms=int(100*(e-int(e)))
         elapsed=f"{m:02}'{s:02}\"{ms:03}"
         # score display
-        arcade.draw_text("Score:", 130, SCREEN_HEIGHT-330-40, arcade.color.WHITE, 14)
-        arcade.draw_text(f"{self.score}", 130, SCREEN_HEIGHT-330-60, arcade.color.WHITE, 14)
-        arcade.draw_text("Level:", 130, SCREEN_HEIGHT-330-100, arcade.color.WHITE, 14)
-        arcade.draw_text(f"{self.level}", 130, SCREEN_HEIGHT-330-120, arcade.color.WHITE, 14)
-        arcade.draw_text("TIME:", 130, SCREEN_HEIGHT-330-160, arcade.color.WHITE, 16)
-        arcade.draw_text(f"{elapsed}", 130, SCREEN_HEIGHT-330-180, arcade.color.WHITE, 16)
-        arcade.draw_text("Grade:", 130, SCREEN_HEIGHT-330-220, arcade.color.GOLD, 16)
-        arcade.draw_text(f"{self.grade}", 130, SCREEN_HEIGHT-330-240, arcade.color.GOLD, 16)
+        sc=[arcade.Text("Score:", 130, SCREEN_HEIGHT-330-40, arcade.color.WHITE, 16),arcade.Text(f"{self.score}", 130, SCREEN_HEIGHT-330-60, arcade.color.WHITE, 16),arcade.Text("Level:", 130, SCREEN_HEIGHT-330-100, arcade.color.WHITE, 16),arcade.Text(f"{self.level}", 130, SCREEN_HEIGHT-330-120, arcade.color.WHITE, 16),arcade.Text("TIME:", 130, SCREEN_HEIGHT-330-160, arcade.color.WHITE, 16),arcade.Text(f"{elapsed}", 130, SCREEN_HEIGHT-330-180, arcade.color.WHITE, 16),arcade.Text("Grade:", 130, SCREEN_HEIGHT-330-220, arcade.color.GOLD, 16),arcade.Text(f"{self.grade}", 130, SCREEN_HEIGHT-330-240, arcade.color.GOLD, 16)]
+        if self.combo > 1:
+            sc+=[arcade.Text("COMBO:", 130, SCREEN_HEIGHT-330-280, arcade.color.WHITE, 16),arcade.Text(f"{self.combo}", 130, SCREEN_HEIGHT-330-320, arcade.color.WHITE, 16)]
+        if self.last_clear is not None:
+            sc+=[arcade.Text(f"{self.last_clear}", 130, SCREEN_HEIGHT-330-360, arcade.color.WHITE, 16)]
         if self.cr_section[self.section][3]:
             d="COOL"
             c=arcade.color.AQUA
@@ -488,22 +494,23 @@ class Tetris(arcade.Window):
         if not (self.cr_section[self.section][3] or self.cr_section[self.section][4]):
             d=""
             c=arcade.color.WHITE
-        arcade.draw_text(f"{d}", 130, SCREEN_HEIGHT-330-280, c, 14)
+        sc+=[arcade.Text(f"{d}", 130, SCREEN_HEIGHT-330-400, c, 16)]
+        [x.draw() for x in sc]
 
         if self.paused:
-            arcade.draw_text("PAUSED", SCREEN_WIDTH/2-50, SCREEN_HEIGHT/2, arcade.color.WHITE, 24)
+            arcade.Text("PAUSED", SCREEN_WIDTH/2-50, SCREEN_HEIGHT/2, arcade.color.WHITE, 24).draw()
         if self.game_over:
-            arcade.draw_text("GAME OVER", SCREEN_WIDTH/2-80, SCREEN_HEIGHT/2, arcade.color.RED, 24)
+            arcade.Text("GAME OVER", SCREEN_WIDTH/2-80, SCREEN_HEIGHT/2, arcade.color.RED, 24).draw()
 
     def clear_check(self):
         return self.grid[:]!=[r for r in self.grid if any(c is None for c in r)]
 
     def get_ingrade(self,cleared):
-        self.spinp=self.piece.is_t_spin(self.grid)
-        if self.spinp == "TSpin":sm=1.5
-        elif self.spinp == "TSpinMini":sm=1.2
+        if self.spinp == "T-Spin":sm=1.5
+        elif self.spinp == "T-Spin Mini":sm=1.2
         else:sm=1.0
         if self.perfect: sm*=2.0
+        if self.b2b: sm*=1.5
         if cleared==1:
             if self.in_grade<5:pt=10
             elif self.in_grade<10:pt=5
@@ -529,25 +536,73 @@ class Tetris(arcade.Window):
             cm=1.5+0.2*min(max(self.combo-2,0),5)+0.1*max(self.combo-5,0) if self.combo<10 else 3
         if self.combo==1: cm=1
         return math.ceil(pt*cm*sm)*(1+self.level//250)
-        
+
+    def get_clear(self,cleared):
+        t="B2B " if self.b2b and cleared > 0 else ""
+        t+=f"{self.spinp} " if self.spinp is not None else ""
+        if cleared == 1: t+="Single" if self.spinp is None else ""
+        elif cleared == 2: t+="Double"
+        elif cleared == 3: t+="Triple"
+        elif cleared == 4: t+="Tetris"
+        if t=="":return None
+        if len(t)>10:
+            t=t.replace("T-Spin","TS").replace("Single","S").replace("Double","D").replace("Triple","T").replace("Mini","M").replace(" ","").replace("B2B","B2B ")
+        return t
+    
     def clear_lines(self):
         new_grid = [r for r in self.grid if any(c is None for c in r)]
         cleared = GRID_HEIGHT - len(new_grid)
+        self.spinp=self.piece.is_t_spin(self.grid)
+        if cleared > 0: self.b2b=True if self.spinp is not None or cleared >= 4 else False
+        self.last_clear=self.get_clear(cleared)
         for _ in range(cleared):
             new_grid.append([None] * GRID_WIDTH)
         if all(all(cell is None for cell in row) for row in new_grid): self.perfect=True
+        self.combo = self.combo if cleared > 0 or self.spinp is not None else 0
         if cleared > 0:
-            self.combo += 1
+            self.combo+=1
             self.in_grade += self.get_ingrade(cleared)
         else:
             self.combo = 0
         self.grid = new_grid
+        self.score+=self.get_score(cleared)
         self.level += max(1,2*(cleared-1)) if cleared > 0 else 0
-        if self.spinp == "TSpin" and cleared > 0: self.level+=2
+        if self.b2b and cleared > 0: self.level += 1
+        if self.spinp == "T-Spin" and cleared > 0: self.level+=2
         self.perfect=False
         self.spinp=None
+        self.sf_t=0
+        self.hd_t=0
         return cleared
-
+    
+    def get_score(self,cleared):
+        r=0
+        if cleared == 0:
+            if self.spinp == "T-Spin Mini": r+=100
+            elif self.spinp == "T-Spin": r+=400
+        elif cleared == 1:
+            r+=100
+            if self.perfect: r+= 700
+            if self.spinp == "T-Spin Mini": r+=100
+            elif self.spinp == "T-Spin": r+=700
+        elif cleared == 2:
+            r+=300
+            if self.perfect: r+= 900
+            if self.spinp == "T-Spin Mini": r+=100
+            elif self.spinp == "T-Spin": r+=900
+        elif cleared == 3:
+            r+=500
+            if self.perfect: r+= 1300
+            if self.spinp == "T-Spin": r+=1100
+        elif cleared == 4:
+            r+=800
+            if self.perfect: r+= 1200
+        if self.b2b:
+            r+=1200 if self.perfect else 0
+            r*=1.5
+        return int((r+50*(max(0,self.combo-1)))*self.level+self.sf_t+2*self.hd_t)
+        
+        
     def on_update(self, dt):
         if self.paused or self.game_over: return
         self.elp+=dt
@@ -579,10 +634,10 @@ class Tetris(arcade.Window):
         # handle DAS soft drop
         if self.move_down:
             if self.das_down_timer==0:
-                self.try_drop()
+                self.try_drop(ad=True)
             self.das_down_timer += dt
             if self.das_down_timer >= self.timing['das']/FPS:
-                self.try_drop()
+                self.try_drop(ad=True)
         # gravity
         self.drop_timer += dt
         while self.drop_timer >= self.gravity()/FPS:
@@ -621,10 +676,11 @@ class Tetris(arcade.Window):
             self.gs+=1
         return 65536/self.g_section[self.gs][1]
         
-    def try_drop(self):
+    def try_drop(self,ad=False):
         if all(0<=nx<GRID_WIDTH and ny>=0 and self.grid[ny][nx] is None
                for nx,ny in [(x,y-1) for x,y in self.piece.current_coords()]):
             self.piece.y-=1
+            if ad: self.sf_t+=1
             self.piece.last_action="move"
             self.lock_timer=0
             self.move_floor=0
@@ -667,12 +723,14 @@ class Tetris(arcade.Window):
             while all(0<=nx<GRID_WIDTH and ny>=0 and self.grid[ny][nx] is None
                       for nx,ny in [(x,y-1) for x,y in self.piece.current_coords()]):
                 self.piece.y-=1
+                self.hd_t+=1
             self.up_used=True
             self.lock_piece()
         elif key==arcade.key.RSHIFT:
             while all(0<=nx<GRID_WIDTH and ny>=0 and self.grid[ny][nx] is None
                       for nx,ny in [(x,y-1) for x,y in self.piece.current_coords()]):
                 self.piece.y-=1
+                self.hd_t+=1
         elif key in (arcade.key.Z,arcade.key.X,arcade.key.C):
             rot=[-1,1,2][[arcade.key.Z,arcade.key.X,arcade.key.C].index(key)]
             if not self.pending_spawn: self.piece.rotate(rot,self.grid)
