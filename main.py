@@ -553,7 +553,7 @@ class Tetris(arcade.Window):
         new_grid = [r for r in self.grid if any(c is None for c in r)]
         cleared = GRID_HEIGHT - len(new_grid)
         self.spinp=self.piece.is_t_spin(self.grid)
-        if cleared > 0: self.b2b=True if self.spinp is not None or cleared >= 4 else False
+        if cleared > 0 and self.spinp is None and cleared<4: self.b2b=False
         self.last_clear=self.get_clear(cleared)
         for _ in range(cleared):
             new_grid.append([None] * GRID_WIDTH)
@@ -569,6 +569,7 @@ class Tetris(arcade.Window):
         self.level += max(1,2*(cleared-1)) if cleared > 0 else 0
         if self.b2b and cleared > 0: self.level += 1
         if self.spinp == "T-Spin" and cleared > 0: self.level+=2
+        if cleared > 0: self.b2b=True if self.spinp is not None or cleared >= 4 else False
         self.perfect=False
         self.spinp=None
         self.sf_t=0
