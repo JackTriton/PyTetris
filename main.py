@@ -44,12 +44,12 @@ CR_TIMINGS = [
     [(900, 900, 999), {"COOL": 0,"REGRET":50},False,False,False],
 ]
 
-DECAY_RATE=[125,80,80,50,50,50,45,45,45,45,40,40,40,40,40,30,30,30,30,30,20,20,20,20,20,15,15,15,15,15,15,15,15,15,15,10,10,10,10,9,9,9,8,8,8,7,7,7,6]
-
 GRADE=[str(i)for i in range(10,0,-1)]
-GRADE+=[f"S{i}"for i in range(1,10)]
-GRADE+=[f"m{i}"for i in range(1,10)]
+GRADE+=[f"S{i}"for i in range(11)]
+GRADE+=[f"m{i}"for i in range(11)]
 GRADE+=["M","MK","MV","MO","MM-","MM","MM+","GM-","GM","GM+","TM-","TM","TM+","ΩM","ΣM","∞M","∞M+"]
+
+DECAY_RATE=[125,80,80,50,50,50,45,45,45,45,40,40,40,40,40,30,30,30,30,30,20,20,20,20,20,15,15,15,15,15,15,15,15,15,15,10,10,10,10,9,9,9,8,8,8,7,7,7,6]
 
 GRAVITY = [
     ((  0, 29),  1024),
@@ -210,7 +210,11 @@ class Piece:
         pnum=[self.rotation,(self.rotation+1)%4]
         for i,(dx, dy) in enumerate(corners):
             x, y = self.x + dx, self.y + dy
-            if y<0 or grid[y][x] is not None:
+            try:
+                if grid[y][x] is not None:
+                    occupied += 1
+                    if i in pnum: mini_parse+=1
+            except IndexError:
                 occupied += 1
                 if i in pnum: mini_parse+=1
         if occupied >= 3:
@@ -242,6 +246,7 @@ class Tetris(arcade.Window):
         self.hold_sprite=[[] for _ in range(8)]
         self.next_sprite=[[] for _ in range(8)]
         self.lane_sprite=[[[] for _ in range(5)] for _ in range(8)]
+        self.grade_sprite=[]
         for y in range(GRID_HEIGHT):
             for x in range(GRID_WIDTH):
                 for i in range(8):
@@ -251,6 +256,15 @@ class Tetris(arcade.Window):
                         image_width=30,
                         image_height=30)
                     self.block_sprite[y][x][i]=block
+        
+        for a in range(len(GRADE)):
+            x=a//7;y=a%7
+            self.grade_sprite.append(
+                arcade.Sprite(
+                    arcade.Texture(PIL.Image.open("./image/grade.png").convert("RGBA")).crop(150*x,120*y,150,120),
+                    center_x=205, center_y=300, 
+                    image_width=150,image_height=120)
+            )
         for a,(i,v) in enumerate(SHAPES.items()):
             ns=int(CELL_SIZE*NEXT_SZ);hs=int(CELL_SIZE*HOLD_SZ);ls=int(CELL_SIZE*LANE_SZ)
             f=SNO(i)
@@ -316,6 +330,7 @@ class Tetris(arcade.Window):
         self.hold_list=arcade.SpriteList()
         self.next_list=arcade.SpriteList()
         self.lane_list=arcade.SpriteList()
+        self.grade_list=arcade.SpriteList()
         self.frame_list.append(self.frame)
         self.frame.center_x, self.frame.center_y=500,450
         self.drop_timer = 0.0
@@ -376,6 +391,7 @@ class Tetris(arcade.Window):
         self.hold_list.clear()
         self.next_list.clear()
         self.lane_list.clear()
+        self.grade_list.clear()
         arcade.draw_texture_rect(
             self.background,
             arcade.LBWH(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT),
@@ -383,6 +399,7 @@ class Tetris(arcade.Window):
         # Settled blocks
         arcade.draw_rect_filled(
             arcade.rect.XYWH(300+5*CELL_SIZE, 100+10*CELL_SIZE, CELL_SIZE*GRID_WIDTH, CELL_SIZE*GRID_HEIGHT),(0,0,0,100))
+        self.grade_list.append(self.grade_sprite[self.gp])
         for y, row in enumerate(self.grid):
             for x, color in enumerate(row):
                 if color:
@@ -480,11 +497,11 @@ class Tetris(arcade.Window):
         m=min(int(e)//60,99);s=int(e)%60;ms=int(100*(e-int(e)))
         elapsed=f"{m:02}'{s:02}\"{ms:03}"
         # score display
-        sc=[arcade.Text("Score:", 130, SCREEN_HEIGHT-330-40, arcade.color.WHITE, 16),arcade.Text(f"{self.score}", 130, SCREEN_HEIGHT-330-60, arcade.color.WHITE, 16),arcade.Text("Level:", 130, SCREEN_HEIGHT-330-100, arcade.color.WHITE, 16),arcade.Text(f"{self.level}", 130, SCREEN_HEIGHT-330-120, arcade.color.WHITE, 16),arcade.Text("TIME:", 130, SCREEN_HEIGHT-330-160, arcade.color.WHITE, 16),arcade.Text(f"{elapsed}", 130, SCREEN_HEIGHT-330-180, arcade.color.WHITE, 16),arcade.Text("Grade:", 130, SCREEN_HEIGHT-330-220, arcade.color.GOLD, 16),arcade.Text(f"{self.grade}", 130, SCREEN_HEIGHT-330-240, arcade.color.GOLD, 16)]
+        sc=[arcade.Text("Score:", 130, SCREEN_HEIGHT-330-40, arcade.color.WHITE, 16),arcade.Text(f"{self.score}", 130, SCREEN_HEIGHT-330-60, arcade.color.WHITE, 16),arcade.Text("Level:", 130, SCREEN_HEIGHT-330-100, arcade.color.WHITE, 16),arcade.Text(f"{self.level}", 130, SCREEN_HEIGHT-330-120, arcade.color.WHITE, 16),arcade.Text("TIME:", 130, SCREEN_HEIGHT-330-160, arcade.color.WHITE, 16),arcade.Text(f"{elapsed}", 130, SCREEN_HEIGHT-330-180, arcade.color.WHITE, 16),arcade.Text("Grade:", 130, SCREEN_HEIGHT-330-220, arcade.color.GOLD, 16)]
         if self.combo > 1:
-            sc+=[arcade.Text("COMBO:", 130, SCREEN_HEIGHT-330-280, arcade.color.WHITE, 16),arcade.Text(f"{self.combo}", 130, SCREEN_HEIGHT-330-320, arcade.color.WHITE, 16)]
+            sc+=[arcade.Text("COMBO:", 130, SCREEN_HEIGHT-330-360, arcade.color.WHITE, 16),arcade.Text(f"{self.combo}", 130, SCREEN_HEIGHT-330-380, arcade.color.WHITE, 16)]
         if self.last_clear is not None:
-            sc+=[arcade.Text(f"{self.last_clear}", 130, SCREEN_HEIGHT-330-360, arcade.color.WHITE, 16)]
+            sc+=[arcade.Text(f"{self.last_clear}", 130, SCREEN_HEIGHT-330-420, arcade.color.WHITE, 16)]
         if self.cr_section[self.section][3]:
             d="COOL"
             c=arcade.color.AQUA
@@ -494,8 +511,10 @@ class Tetris(arcade.Window):
         if not (self.cr_section[self.section][3] or self.cr_section[self.section][4]):
             d=""
             c=arcade.color.WHITE
-        sc+=[arcade.Text(f"{d}", 130, SCREEN_HEIGHT-330-400, c, 16)]
+        sc+=[arcade.Text(f"{d}", 130, SCREEN_HEIGHT-330-440, c, 16)]
         [x.draw() for x in sc]
+
+        self.grade_list.draw()
 
         if self.paused:
             arcade.Text("PAUSED", SCREEN_WIDTH/2-50, SCREEN_HEIGHT/2, arcade.color.WHITE, 24).draw()
